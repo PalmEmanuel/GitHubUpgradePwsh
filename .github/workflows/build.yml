@@ -1,0 +1,91 @@
+name: Build, Test and Release
+
+on:
+  push:
+    branches: [master,main]
+    tags: [v*]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Set PSModulePath
+      shell: pwsh
+      run: |
+        $PSModulePath = @(
+          [System.IO.Path]::Combine($Env:GITHUB_WORKSPACE, 'TMP', 'Modules'),
+          $Env:PSModulePath
+        ) -join [System.IO.Path]::PathSeparator
+        "PSModulePath=$PSModulePath" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Update PowerShell from LTS
+      shell: pwsh
+      run: |
+        $Destination = Resolve-Path "~/.powershell"
+
+        $IsLinuxEnv = (Get-Variable -Name "IsLinux" -ErrorAction Ignore) -and $IsLinux
+        $IsMacOSEnv = (Get-Variable -Name "IsMacOS" -ErrorAction Ignore) -and $IsMacOS
+        $IsWinEnv = !$IsLinuxEnv -and !$IsMacOSEnv
+        
+        Invoke-Expression "& { $(irm https://aka.ms/install-powershell.ps1) } -Destination $Destination"
+        $targetPath = Join-Path -Path $Destination -ChildPath "pwsh"
+        if ($IsLinuxEnv) { $symlink = "/usr/bin/pwsh" } elseif ($IsMacOSEnv) { $symlink = "/usr/local/bin/pwsh" }
+        $needNewSymlink = $true
+
+        if (Test-Path -Path $symlink) {
+            $linkItem = Get-Item -Path $symlink
+            if ($linkItem.LinkType -ne "SymbolicLink") {
+                Write-Warning "'$symlink' already exists but it's not a symbolic link. Abort adding to PATH."
+                $needNewSymlink = $false
+            } elseif ($linkItem.Target -contains $targetPath) {
+                ## The link already points to the target
+                Write-Verbose "'$symlink' already points to '$targetPath'" -Verbose
+                $needNewSymlink = $false
+            }
+        }
+
+        if ($needNewSymlink) {
+            $uid = id -u
+            if ($uid -ne "0") { $SUDO = "sudo" } else { $SUDO = "" }
+
+            Write-Verbose "Make symbolic link '$symlink' point to '$targetPath'..." -Verbose
+            & $SUDO ln -fs $targetPath $symlink
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "Could not add to PATH: failed to make '$symlink' point to '$targetPath'."
+            }
+        }
+
+        ## Add to the current process 'Path' if the process is not 'pwsh'
+        $runningProcessName = (Get-Process -Id $PID).ProcessName
+        if ($runningProcessName -ne 'pwsh') {
+            $env:GITHUB_PATH = $Destination + [System.IO.Path]::PathSeparator + $env:GITHUB_PATH
+        }
+
+    - name: Setup.NET Core
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '7.0'
+
+    - name: Install GitVersion
+      uses: gittools/actions/gitversion/setup@v0.9.14
+      with:
+        versionSpec: '5.x'
+
+    - name: Determine Version
+      id:   gitversion
+      uses: gittools/actions/gitversion/execute@v0.9.14
+
+    - name: Check version
+      shell: pwsh
+      run: |
+        $PSVersionTable
+
+    - name: Check version
+      shell: pwsh
+      run: |
+        $PSVersionTable
