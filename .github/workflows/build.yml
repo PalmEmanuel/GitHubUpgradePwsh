@@ -27,7 +27,7 @@ jobs:
       run: |
         $Destination = "~/.powershell"
 
-        if (-not Test-Path -Path $Destination) { New-Item -ItemType Directory -Path $Destination}
+        if (-not (Test-Path -Path $Destination)) { New-Item -ItemType Directory -Path $Destination}
         $Destination = Resolve-Path "~/.powershell"
 
         $IsLinuxEnv = (Get-Variable -Name "IsLinux" -ErrorAction Ignore) -and $IsLinux
